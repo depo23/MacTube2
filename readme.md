@@ -23,6 +23,7 @@
 - **Shorts off, for good.** One switch removes Shorts from your home feed, search results, sidebar and recommendations. Shorts links take you back Home instead of down the scroll hole.
 - **Skip AI-generated videos.** Videos YouTube labels *Made with AI* are stopped before they play. Channels caught posting them disappear from your feed too, so it gets cleaner the more you watch. One click to watch anyway if you want.
 - **No ads.** Video ads are removed before the player sees them, any that slip through are muted and skipped, and promoted videos and ad banners are hidden from your feed, search and watch pages.
+- **Live chat replay: fully working 😉** Live streams and past streams load their chat alongside the video, with no "your browser is out of date" message.
 - **Real Mac tabs.** ⌘T opens a new tab, just like Safari. Keep a tutorial, a playlist and a talk open side by side.
 - **Links go where they should.** Links in descriptions and comments open in your default browser — no "Are you sure you want to leave YouTube?" detours.
 - **Feels native.** Its own Dock icon, its own window, light and dark mode, settings remembered between launches.
