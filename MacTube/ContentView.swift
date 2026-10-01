@@ -65,14 +65,14 @@ struct ContentView: View {
 
 /// Owns the web view so it survives SwiftUI re-renders (settings changes).
 final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate {
-    let webView: TabWebView = {
-        // WKWebView's default user agent lacks the "Version/… Safari/…" part, so YouTube's
-        // live chat treats it as an outdated browser. Identify as the installed Safari.
+    let webView = TabWebView()
+    /// WKWebView's default user agent lacks the "Version/… Safari/…" part, so YouTube's live chat
+    /// treats it as an outdated browser. Only live chat gets the Safari one: with it, YouTube also
+    /// serves the full set of ads everywhere else.
+    private static let safariUserAgent: String = {
         let safari = Bundle(path: "/Applications/Safari.app")?
             .object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "26.0"
-        let configuration = WKWebViewConfiguration()
-        configuration.applicationNameForUserAgent = "Version/\(safari) Safari/605.1.15"
-        return TabWebView(frame: .zero, configuration: configuration)
+        return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/\(safari) Safari/605.1.15"
     }()
     @Published var title = ""
     var openTab: ((URL) -> Void)?
@@ -120,6 +120,10 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
             || host.split(separator: ".").contains("google")
     }
 
+    private static func isLiveChat(_ url: URL) -> Bool {
+        (url.host?.lowercased().hasSuffix("youtube.com") ?? false) && url.path.hasPrefix("/live_chat")
+    }
+
     /// The real destination of YouTube's "redirect?q=" links (used in descriptions and comments).
     private static func unwrapRedirect(_ url: URL) -> URL {
         guard let host = url.host, host.hasSuffix("youtube.com"), url.path == "/redirect",
@@ -145,10 +149,26 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        // Only top-level navigations; iframes (embeds, ads, sign-in helpers) load normally.
-        guard let url = action.request.url, action.targetFrame?.isMainFrame == true else {
-            return decisionHandler(.allow)
+        guard let url = action.request.url else { return decisionHandler(.allow) }
+        let isMainFrame = action.targetFrame?.isMainFrame == true
+        if Browser.isLiveChat(url) {
+            // The user agent can't change for a load already under way, so switch it and start over.
+            if webView.customUserAgent != Browser.safariUserAgent {
+                decisionHandler(.cancel)
+                webView.customUserAgent = Browser.safariUserAgent
+                if isMainFrame {
+                    webView.load(action.request)
+                } else {
+                    webView.callAsyncJavaScript("for (const f of document.querySelectorAll('iframe')) if (f.src === url) f.src = url",
+                                               arguments: ["url": url.absoluteString], in: nil, in: .page)
+                }
+                return
+            }
+        } else if isMainFrame {
+            webView.customUserAgent = nil
         }
+        // Only top-level navigations; iframes (embeds, ads, sign-in helpers) load normally.
+        guard isMainFrame else { return decisionHandler(.allow) }
         let newTab = action.navigationType == .linkActivated && action.modifierFlags.contains(.command)
         decisionHandler(route(url, newTab: newTab) ? .cancel : .allow)
     }
