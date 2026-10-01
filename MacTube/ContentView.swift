@@ -95,7 +95,10 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
                 webView.window?.tab.title = title.isEmpty ? "MacTube 2" : title
             }
         }
-        webView.load(URLRequest(url: url))
+        // Load once the ad rules are in place so the first page is covered too.
+        AdBlock.installRules(in: webView.configuration.userContentController) { [weak self] in
+            self?.webView.load(URLRequest(url: url))
+        }
     }
 
     /// Re-installs the filter script with current settings (for future page loads)
@@ -106,6 +109,8 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
         controller.removeAllUserScripts()
         controller.addUserScript(WKUserScript(source: "window.__mt2Settings=\(json);\n" + FilterScript.source,
                                               injectionTime: .atDocumentStart,
+                                              forMainFrameOnly: true))
+        controller.addUserScript(WKUserScript(source: AdBlock.script, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: true))
         webView.evaluateJavaScript("window.__mt2 && window.__mt2.update(\(json))", completionHandler: nil)
     }
@@ -214,6 +219,124 @@ struct WebView: NSViewRepresentable {
     }
     
     func updateNSView(_ nsView: WKWebView, context: Context) {}
+}
+
+/// Ad blocking in layers, so YouTube changing one thing doesn't bring every ad back:
+/// network rules, ads stripped from the player's data, a skipper for any that still play,
+/// and hidden ad slots in feeds and on watch pages.
+enum AdBlock {
+    private static var compiled: WKContentRuleList?
+
+    /// Ad servers and YouTube's ad endpoints. WebKit's rule syntax has no "|", hence one rule each.
+    private static let rules: String = {
+        let hosts = ["doubleclick.net", "googlesyndication.com", "googleadservices.com", "imasdk.googleapis.com"]
+        let paths = ["pagead/", "api/stats/ads", "ptracking", "get_midroll_info"]
+        let filters = hosts.map { "^[^:]+://+([^:/]+\\.)?" + $0.replacingOccurrences(of: ".", with: "\\.") + "[:/]" }
+            + paths.map { "^[^:]+://+([^:/]+\\.)?youtube\\.com/" + $0 }
+        let list = filters.map { ["trigger": ["url-filter": $0], "action": ["type": "block"]] }
+        return String(decoding: try! JSONSerialization.data(withJSONObject: list), as: UTF8.self)
+    }()
+
+    /// Adds the compiled rules (compiling them once per launch), then calls `done` either way.
+    static func installRules(in controller: WKUserContentController, done: @escaping () -> Void) {
+        if let compiled {
+            controller.add(compiled)
+            return done()
+        }
+        WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "mt2-ads", encodedContentRuleList: rules) { list, error in
+            if let list {
+                compiled = list
+                controller.add(list)
+            } else {
+                NSLog("MacTube 2: ad rules failed to compile: \(error?.localizedDescription ?? "unknown error")")
+            }
+            done()
+        }
+    }
+
+    static let script = #"""
+(() => {
+  if (window.__mt2Ads) return;
+  window.__mt2Ads = true;
+
+  // 1. Strip ads from the player's data before the player reads it (as uBlock Origin's json-prune does),
+  //    both for the first page (an inline ytInitialPlayerResponse) and for in-app navigation (fetched JSON).
+  const AD_KEYS = ['adPlacements', 'adSlots', 'playerAds', 'adBreakHeartbeatParams'];
+  function prune(data) {
+    for (const o of [data, data && data.playerResponse]) {
+      if (o && typeof o === 'object') for (const k of AD_KEYS) if (k in o) delete o[k];
+    }
+    return data;
+  }
+  let initial;
+  Object.defineProperty(window, 'ytInitialPlayerResponse', {
+    configurable: true,
+    get() { return initial; },
+    set(v) { initial = prune(v); },
+  });
+  const parse = JSON.parse;
+  JSON.parse = function () { return prune(parse.apply(this, arguments)); };
+  const json = Response.prototype.json;
+  Response.prototype.json = function () { return json.apply(this, arguments).then(prune); };
+
+  // 2. Hide ad slots in feeds, search and on watch pages. One rule per selector so an
+  //    unsupported one can't invalidate the rest.
+  const HIDE = [
+    'ytd-ad-slot-renderer',
+    'ad-slot-renderer',
+    'ytd-rich-item-renderer:has(ytd-ad-slot-renderer)',
+    'ytd-rich-item-renderer:has(ad-slot-renderer)',
+    'ytd-rich-item-renderer:has(feed-ad-metadata-view-model)',
+    'ytd-in-feed-ad-layout-renderer',
+    'ytd-display-ad-renderer',
+    'ytd-promoted-sparkles-web-renderer',
+    'ytd-promoted-video-renderer',
+    'ytd-search-pyv-renderer',
+    'ytd-banner-promo-renderer',
+    'ytd-statement-banner-renderer',
+    'ytd-rich-section-renderer:has(ytd-statement-banner-renderer)',
+    'ytd-brand-video-singleton-renderer',
+    'ytd-brand-video-shelf-renderer',
+    'ytd-companion-slot-renderer',
+    'ytd-player-legacy-desktop-watch-ads-renderer',
+    'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"]',
+    'ytd-merch-shelf-renderer',
+    '#masthead-ad',
+    '#player-ads',
+    '.ytp-ad-overlay-container',
+    '.ytp-featured-product',
+    // YouTube's "Ad blockers are not allowed" wall.
+    'tp-yt-paper-dialog:has(ytd-enforcement-message-view-model)',
+    'ytd-enforcement-message-view-model',
+    'html:has(ytd-enforcement-message-view-model) tp-yt-iron-overlay-backdrop',
+  ];
+  const style = document.createElement('style');
+  style.textContent = HIDE.map(s => `${s} { display: none !important; }`).join('\n');
+  document.documentElement.appendChild(style);
+
+  // 3. Any ad that still plays: mute it, press Skip as soon as it exists, and jump to its end.
+  //    The wall above pauses the video; resume it once.
+  let mutedByUs = false;
+  let wallSeen = false;
+  setInterval(() => {
+    const player = document.getElementById('movie_player');
+    const video = player && player.querySelector('video');
+    if (!video) return;
+    if (player.classList.contains('ad-showing')) {
+      if (!video.muted) { video.muted = true; mutedByUs = true; }
+      const skip = player.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern');
+      if (skip) skip.click();
+      if (isFinite(video.duration) && video.duration > 0) video.currentTime = video.duration;
+    } else if (mutedByUs) {
+      video.muted = false;
+      mutedByUs = false;
+    }
+    const wall = !!document.querySelector('ytd-enforcement-message-view-model');
+    if (wall && !wallSeen && video.paused) video.play();
+    wallSeen = wall;
+  }, 250);
+})();
+"""#
 }
 
 enum FilterScript {
