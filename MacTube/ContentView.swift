@@ -14,6 +14,7 @@ struct ContentView: View {
     @StateObject private var browser: Browser
     @AppStorage(Pref.showShorts) private var showShorts = true
     @AppStorage(Pref.showAI) private var showAI = true
+    @AppStorage(Pref.blockedChannels) private var blockedChannels = ""
 
     init(url: URL) {
         _browser = StateObject(wrappedValue: Browser(url: url))
@@ -55,8 +56,9 @@ struct ContentView: View {
                     openWindow(value: TabRequest(url: url))
                 }
             }
-            .onChange(of: showShorts) { _ in browser.apply(showShorts: showShorts, showAI: showAI) }
-            .onChange(of: showAI) { _ in browser.apply(showShorts: showShorts, showAI: showAI) }
+            .onChange(of: showShorts) { _ in browser.apply() }
+            .onChange(of: showAI) { _ in browser.apply() }
+            .onChange(of: blockedChannels) { _ in browser.apply() }
             .onReceive(NotificationCenter.default.publisher(for: .forgetAIChannels)) { _ in
                 browser.webView.evaluateJavaScript("window.__mt2 && window.__mt2.forgetChannels()", completionHandler: nil)
             }
@@ -80,9 +82,8 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
 
     init(url: URL) {
         super.init()
-        let defaults = UserDefaults.standard
-        apply(showShorts: defaults.object(forKey: Pref.showShorts) as? Bool ?? true,
-              showAI: defaults.object(forKey: Pref.showAI) as? Bool ?? true)
+        apply()
+        webView.configuration.userContentController.add(ScriptMessages(), name: "mt2")
         webView.navigationDelegate = self
         webView.uiDelegate = self
         if #available(macOS 13.3, *) { webView.isInspectable = true }
@@ -103,8 +104,14 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
 
     /// Re-installs the filter script with current settings (for future page loads)
     /// and pushes them into the current page.
-    func apply(showShorts: Bool, showAI: Bool) {
-        let json = "{\"showShorts\":\(showShorts),\"showAI\":\(showAI)}"
+    func apply() {
+        let defaults = UserDefaults.standard
+        let settings: [String: Any] = [
+            "showShorts": defaults.object(forKey: Pref.showShorts) as? Bool ?? true,
+            "showAI": defaults.object(forKey: Pref.showAI) as? Bool ?? true,
+            "blocked": Blocklist.load(),
+        ]
+        let json = String(decoding: try! JSONSerialization.data(withJSONObject: settings), as: UTF8.self)
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
         controller.addUserScript(WKUserScript(source: "window.__mt2Settings=\(json);\n" + FilterScript.source,
@@ -183,6 +190,15 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
                  for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         if let url = action.request.url { _ = route(url, newTab: true) }
         return nil
+    }
+}
+
+/// Messages from the page script. `{block: "@handle"}`: the Block button under a video was pressed.
+final class ScriptMessages: NSObject, WKScriptMessageHandler {
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, message.frameInfo.securityOrigin.host.hasSuffix("youtube.com"),
+              let body = message.body as? [String: Any], let channel = body["block"] as? String else { return }
+        Blocklist.add(channel)
     }
 }
 
@@ -368,7 +384,8 @@ enum FilterScript {
   const KEY = 'mt2.aiChannels';
 
   const root = document.documentElement;
-  let settings = Object.assign({ showShorts: true, showAI: true }, window.__mt2Settings);
+  let settings = Object.assign({ showShorts: true, showAI: true, blocked: [] }, window.__mt2Settings);
+  let blocked = new Set(settings.blocked);
   let aiChannels = new Set(load());
   const results = new Map(); // videoId -> Promise<{ ai, channel }>
   const allowed = new Set(); // videoIds the user chose to watch anyway
@@ -378,11 +395,24 @@ enum FilterScript {
   function load() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; } }
   function save() { try { localStorage.setItem(KEY, JSON.stringify([...aiChannels])); } catch (e) {} }
   function norm(handle) { try { return decodeURIComponent(handle).toLowerCase(); } catch (e) { return handle.toLowerCase(); } }
+  // "/@Name/videos" → "@name", "/channel/UC…" → "channel/uc…" (same form as the app's blocklist).
+  function channelKey(href) {
+    const m = (href || '').match(/^(?:https?:\/\/(?:www\.)?youtube\.com)?\/(@[^\/?#]+|channel\/[^\/?#]+)/);
+    return m ? norm(m[1]) : null;
+  }
+  const CHANNEL_LINK = 'a[href^="/@"], a[href^="/channel/"]';
 
   // One rule per selector so an unsupported selector can't invalidate the rest.
   const style = document.createElement('style');
   style.textContent = SHORTS_SELECTORS.map(s => `html[mt2-hide-shorts] ${s} { display: none !important; }`).join('\n') + `
     html[mt2-hide-ai] .mt2-ai { display: none !important; }
+    .mt2-blocked { display: none !important; }
+    #mt2-block-channel { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 36px;
+      margin-left: 8px; padding: 0 16px 0 12px; border: 0; border-radius: 18px; cursor: pointer;
+      font: 500 14px Roboto, Arial, sans-serif; color: var(--yt-spec-text-primary, #0f0f0f);
+      background: var(--yt-spec-badge-chip-background, rgba(0,0,0,.05)); }
+    #mt2-block-channel:hover { background: var(--yt-spec-button-chip-background-hover, rgba(0,0,0,.1)); }
+    #mt2-block-channel svg { width: 22px; height: 22px; fill: currentColor; }
     #mt2-block { position: fixed; inset: 0; z-index: 2147483647; display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: 20px; background: rgba(15,15,15,.97);
       color: #fff; font: 16px -apple-system, BlinkMacSystemFont, sans-serif; }
@@ -428,14 +458,14 @@ enum FilterScript {
     return b;
   }
 
-  function block(id) {
+  function block(id, message) {
     unblock();
     blockedId = id;
     const isShort = location.pathname.startsWith('/shorts/');
     const box = document.createElement('div');
     box.id = 'mt2-block';
     const msg = document.createElement('p');
-    msg.textContent = 'Hidden by MacTube 2 — YouTube labels this video as made with AI.';
+    msg.textContent = message;
     const actions = document.createElement('div');
     actions.append(
       button(isShort ? 'Next Short' : 'Go back', () => {
@@ -471,31 +501,78 @@ enum FilterScript {
     const r = await check(id);
     if (!r.ai) return;
     if (r.channel && !aiChannels.has(r.channel)) { aiChannels.add(r.channel); save(); }
-    if (videoId() === id && !settings.showAI && !allowed.has(id)) block(id);
+    if (videoId() === id && !settings.showAI && !allowed.has(id)) block(id, 'Hidden by MacTube 2 — YouTube labels this video as made with AI.');
   }
 
-  // Mark feed items from channels already caught posting labeled videos.
+  // Hide feed items from blocked channels, and mark those from channels caught posting AI-labeled videos.
+  // YouTube reuses item elements for new videos, so the blocked mark is re-evaluated every pass.
   function scan() {
-    if (settings.showAI || !aiChannels.size) return;
     document.querySelectorAll(ITEMS).forEach(el => {
-      if (el.classList.contains('mt2-ai')) return;
-      const a = el.querySelector('a[href^="/@"]');
-      if (a && aiChannels.has(norm(a.getAttribute('href').slice(1).split(/[\/?]/)[0]))) el.classList.add('mt2-ai');
+      const a = el.querySelector(CHANNEL_LINK);
+      const channel = a && channelKey(a.getAttribute('href'));
+      el.classList.toggle('mt2-blocked', !!channel && blocked.has(channel));
+      if (channel && !settings.showAI && aiChannels.has(channel)) el.classList.add('mt2-ai');
     });
+  }
+
+  function watchedChannel() {
+    const a = document.querySelector('ytd-watch-metadata #owner ' + CHANNEL_LINK.replace(', ', ', ytd-watch-metadata #owner '));
+    return a && channelKey(a.getAttribute('href'));
+  }
+
+  // Stop videos from blocked channels, once the page shows the current video's channel.
+  function checkChannel() {
+    const id = videoId();
+    if (location.pathname !== '/watch' || !id || allowed.has(id) || blockedId === id) return;
+    const page = document.querySelector('ytd-watch-flexy');
+    if (!page || page.getAttribute('video-id') !== id) return;
+    const channel = watchedChannel();
+    if (channel && blocked.has(channel)) block(id, 'Hidden by MacTube 2 — you blocked this channel.');
+  }
+
+  // A "Block" button next to Like / Share / Save. YouTube re-renders that row, so it's re-added as needed.
+  function addBlockButton() {
+    if (location.pathname !== '/watch' || document.getElementById('mt2-block-channel')) return;
+    const menu = document.querySelector('ytd-watch-metadata #actions ytd-menu-renderer');
+    if (!menu) return;
+    const b = document.createElement('button');
+    b.id = 'mt2-block-channel';
+    b.title = 'Block this channel: hide its videos everywhere (MacTube 2)';
+    const NS = 'http://www.w3.org/2000/svg';
+    const icon = document.createElementNS(NS, 'svg');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 0 1 6.32 12.9L7.1 5.68A7.96 7.96 0 0 1 12 4zM4 12c0-1.85.63-3.55 1.68-4.9L16.9 18.32A8 8 0 0 1 4 12z');
+    icon.appendChild(path);
+    const label = document.createElement('span');
+    label.textContent = 'Block';
+    b.append(icon, label);
+    b.addEventListener('click', () => {
+      const channel = watchedChannel();
+      if (!channel) return;
+      blocked.add(channel);
+      allowed.delete(videoId());
+      window.webkit.messageHandlers.mt2.postMessage({ block: channel });
+      checkChannel();
+    });
+    (menu.querySelector('#top-level-buttons-computed') || menu).appendChild(b);
   }
 
   // YouTube is a single-page app: poll for URL changes instead of relying on page loads.
   setInterval(() => {
     if (location.href !== lastUrl) { lastUrl = location.href; onUrlChange(); }
     scan();
+    checkChannel();
+    addBlockButton();
   }, 400);
 
   window.__mt2 = {
     update(next) {
       settings = Object.assign(settings, next);
+      blocked = new Set(settings.blocked);
       applyAttrs();
-      if (settings.showAI) unblock();
-      lastUrl = ''; // re-evaluate the current page
+      unblock();
+      lastUrl = ''; // re-evaluate the current page (blocks again if it still should be)
     },
     forgetChannels() {
       aiChannels.clear();

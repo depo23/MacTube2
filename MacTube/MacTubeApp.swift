@@ -10,6 +10,33 @@ import SwiftUI
 enum Pref {
     static let showShorts = "showShorts"
     static let showAI = "showAI"
+    static let blockedChannels = "blockedChannels"
+}
+
+/// Channels the user blocked, one per line: "@handle" or "channel/uc…", lowercased as the page script compares them.
+enum Blocklist {
+    static func load() -> [String] { parse(UserDefaults.standard.string(forKey: Pref.blockedChannels) ?? "") }
+
+    static func parse(_ stored: String) -> [String] { stored.split(separator: "\n").map(String.init) }
+
+    static func save(_ channels: [String]) {
+        var seen = Set<String>()
+        let clean = channels.map(normalize).filter { !$0.isEmpty && seen.insert($0).inserted }
+        UserDefaults.standard.set(clean.joined(separator: "\n"), forKey: Pref.blockedChannels)
+    }
+
+    static func add(_ channel: String) { save(load() + [channel]) }
+
+    /// Accepts what people paste: "Name", "@Name", "youtube.com/@Name/videos", "…/channel/UC…".
+    static func normalize(_ input: String) -> String {
+        var s = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        s = (s.removingPercentEncoding ?? s).lowercased()
+        if let r = s.range(of: "youtube.com/") { s = String(s[r.upperBound...]) }
+        let parts = s.split(whereSeparator: { "/?#".contains($0) }).map(String.init)
+        guard let first = parts.first else { return "" }
+        if first == "channel" { return parts.count > 1 ? "channel/" + parts[1] : "" }
+        return first.hasPrefix("@") ? first : "@" + first
+    }
 }
 
 extension Notification.Name {
@@ -188,8 +215,80 @@ struct SettingsView: View {
             Button("Forget Learned AI Channels") {
                 NotificationCenter.default.post(name: .forgetAIChannels, object: nil)
             }
+            Divider()
+            BlockedChannelsEditor()
         }
         .padding(20)
         .frame(width: 380)
+    }
+}
+
+struct BlockedChannelsEditor: View {
+    @AppStorage(Pref.blockedChannels) private var stored = ""
+    @State private var newChannel = ""
+
+    private var channels: [String] { Blocklist.parse(stored) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Blocked channels")
+            List {
+                ForEach(channels, id: \.self) { channel in
+                    BlockedChannelRow(channel: channel,
+                                      rename: { edited in Blocklist.save(channels.map { $0 == channel ? edited : $0 }) },
+                                      remove: { Blocklist.save(channels.filter { $0 != channel }) })
+                }
+            }
+            .frame(height: 150)
+            .overlay {
+                if channels.isEmpty {
+                    Text("No blocked channels").foregroundColor(.secondary)
+                }
+            }
+            HStack {
+                TextField("@handle or channel link", text: $newChannel)
+                    .onSubmit(add)
+                Button("Add", action: add)
+                    .disabled(Blocklist.normalize(newChannel).isEmpty)
+            }
+            Text("Use the Block button under any video, or add channels here. Their videos are hidden from feeds and search, and won't play unless you choose to watch anyway.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func add() {
+        guard !Blocklist.normalize(newChannel).isEmpty else { return }
+        Blocklist.add(newChannel)
+        newChannel = ""
+    }
+}
+
+/// One editable entry: edit the text and press Return to change it, or clear it to remove it.
+struct BlockedChannelRow: View {
+    @State private var draft: String
+    let channel: String
+    let rename: (String) -> Void
+    let remove: () -> Void
+
+    init(channel: String, rename: @escaping (String) -> Void, remove: @escaping () -> Void) {
+        self.channel = channel
+        self.rename = rename
+        self.remove = remove
+        _draft = State(initialValue: channel)
+    }
+
+    var body: some View {
+        HStack {
+            TextField("Channel", text: $draft)
+                .textFieldStyle(.plain)
+                .onSubmit { rename(draft) }
+            Button(action: remove) {
+                Image(systemName: "minus.circle.fill")
+            }
+            .buttonStyle(.borderless)
+            .help("Unblock \(channel)")
+        }
     }
 }

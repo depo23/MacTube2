@@ -24,6 +24,7 @@
 - **Skip AI-generated videos.** Videos YouTube labels *Made with AI* are stopped before they play. Channels caught posting them disappear from your feed too, so it gets cleaner the more you watch. One click to watch anyway if you want.
 - **No ads.** Video ads are removed before the player sees them, any that slip through are muted and skipped, and promoted videos and ad banners are hidden from your feed, search and watch pages.
 - **Live chat replay: fully working 😉** Live streams and past streams load their chat alongside the video, with no "your browser is out of date" message.
+- **Block channels.** Press **Block** under any video and that channel is gone: its videos vanish from your feed, search and recommendations, and won't play unless you choose to. Edit the list anytime in Settings.
 - **Real Mac tabs.** ⌘T opens a new tab, just like Safari. Keep a tutorial, a playlist and a talk open side by side.
 - **Links go where they should.** Links in descriptions and comments open in your default browser — no "Are you sure you want to leave YouTube?" detours.
 - **Feels native.** Its own Dock icon, its own window, light and dark mode, settings remembered between launches.
@@ -34,6 +35,8 @@
 | --- | --- | --- |
 | Show / hide Shorts | **Filters** menu or **Settings** | ⇧⌘1 |
 | Show / hide AI videos | **Filters** menu or **Settings** | ⇧⌘2 |
+| Block a channel | **Block** button under any video | |
+| Edit blocked channels | **Settings** | |
 | New tab | **File** menu | ⌘T |
 | New window | **File** menu | ⌘N |
 | Settings | **MacTube 2** menu | ⌘, |
