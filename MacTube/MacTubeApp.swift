@@ -11,6 +11,32 @@ enum Pref {
     static let showShorts = "showShorts"
     static let showAI = "showAI"
     static let blockedChannels = "blockedChannels"
+    static let theme = "theme"
+}
+
+/// Light / dark for the app and YouTube. System follows macOS; the others pin it.
+enum Theme: String, CaseIterable {
+    case system, light, dark
+
+    var label: String { rawValue.capitalized }
+
+    /// Drives SwiftUI's color scheme (app chrome, backgrounds).
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+
+    /// Drives the web view, which is what YouTube reads as prefers-color-scheme.
+    var appearance: NSAppearance? {
+        switch self {
+        case .system: return nil
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        }
+    }
 }
 
 /// Channels the user blocked, one per line: "@handle" or "channel/uc…", lowercased as the page script compares them.
@@ -203,9 +229,14 @@ struct WindowTabbing: NSViewRepresentable {
 struct SettingsView: View {
     @AppStorage(Pref.showShorts) private var showShorts = true
     @AppStorage(Pref.showAI) private var showAI = true
+    @AppStorage(Pref.theme) private var theme = Theme.system
 
     var body: some View {
         Form {
+            Picker("Theme", selection: $theme) {
+                ForEach(Theme.allCases, id: \.self) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
             Toggle("Show Shorts", isOn: $showShorts)
             Toggle("Show AI videos", isOn: $showAI)
             Text("AI videos are detected by YouTube's AI disclosure label. Channels caught once are also hidden from feeds.")

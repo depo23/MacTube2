@@ -15,6 +15,7 @@ struct ContentView: View {
     @AppStorage(Pref.showShorts) private var showShorts = true
     @AppStorage(Pref.showAI) private var showAI = true
     @AppStorage(Pref.blockedChannels) private var blockedChannels = ""
+    @AppStorage(Pref.theme) private var theme = Theme.system
 
     init(url: URL) {
         _browser = StateObject(wrappedValue: Browser(url: url))
@@ -50,6 +51,8 @@ struct ContentView: View {
                 ? CGColor(red: 0.097, green: 0.097, blue: 0.097, alpha: 1)
                 : CGColor(red: 1, green: 1, blue: 1, alpha: 1)
             ))
+            .preferredColorScheme(theme.colorScheme)
+            .onChange(of: theme) { browser.setTheme($0) }
             .onAppear {
                 browser.openTab = { [weak b = browser] url in
                     TabHost.pending = b?.webView.window
@@ -82,6 +85,7 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
 
     init(url: URL) {
         super.init()
+        setTheme(Theme(rawValue: UserDefaults.standard.string(forKey: Pref.theme) ?? "") ?? .system)
         apply()
         webView.configuration.userContentController.add(ScriptMessages(), name: "mt2")
         webView.navigationDelegate = self
@@ -100,6 +104,11 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
         AdBlock.installRules(in: webView.configuration.userContentController) { [weak self] in
             self?.webView.load(URLRequest(url: url))
         }
+    }
+
+    /// Web content follows the view's appearance, so this switches YouTube and the live chat too.
+    func setTheme(_ theme: Theme) {
+        webView.appearance = theme.appearance
     }
 
     /// Re-installs the filter script with current settings (for future page loads)

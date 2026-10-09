@@ -27,7 +27,7 @@
 - **Block channels.** Press **Block** under any video and that channel is gone: its videos vanish from your feed, search and recommendations, and won't play unless you choose to. Edit the list anytime in Settings.
 - **Real Mac tabs.** ⌘T opens a new tab, just like Safari. Keep a tutorial, a playlist and a talk open side by side.
 - **Links go where they should.** Links in descriptions and comments open in your default browser — no "Are you sure you want to leave YouTube?" detours.
-- **Feels native.** Its own Dock icon, its own window, light and dark mode, settings remembered between launches.
+- **Feels native.** Its own Dock icon, its own window, settings remembered between launches. Light, dark or follow-the-system theme (Settings), applied to YouTube and live chat too.
 
 ## Controls
 
