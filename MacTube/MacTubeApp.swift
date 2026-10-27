@@ -12,6 +12,7 @@ enum Pref {
     static let showAI = "showAI"
     static let blockedChannels = "blockedChannels"
     static let theme = "theme"
+    static let webInspector = "webInspector"
 }
 
 /// Light / dark for the app and YouTube. System follows macOS; the others pin it.
@@ -230,6 +231,7 @@ struct SettingsView: View {
     @AppStorage(Pref.showShorts) private var showShorts = true
     @AppStorage(Pref.showAI) private var showAI = true
     @AppStorage(Pref.theme) private var theme = Theme.system
+    @AppStorage(Pref.webInspector) private var webInspector = false
 
     var body: some View {
         Form {
@@ -239,6 +241,11 @@ struct SettingsView: View {
             .pickerStyle(.segmented)
             Toggle("Show Shorts", isOn: $showShorts)
             Toggle("Show AI videos", isOn: $showAI)
+            Toggle("Web Inspector", isOn: $webInspector)
+            Text("Lets Safari's Develop menu inspect MacTube 2's pages (Develop → your Mac → MacTube 2). For debugging; off by default.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Text("AI videos are detected by YouTube's AI disclosure label. Channels caught once are also hidden from feeds.")
                 .font(.caption)
                 .foregroundColor(.secondary)

@@ -16,6 +16,7 @@ struct ContentView: View {
     @AppStorage(Pref.showAI) private var showAI = true
     @AppStorage(Pref.blockedChannels) private var blockedChannels = ""
     @AppStorage(Pref.theme) private var theme = Theme.system
+    @AppStorage(Pref.webInspector) private var webInspector = false
 
     init(url: URL) {
         _browser = StateObject(wrappedValue: Browser(url: url))
@@ -53,6 +54,7 @@ struct ContentView: View {
             ))
             .preferredColorScheme(theme.colorScheme)
             .onChange(of: theme) { browser.setTheme($0) }
+            .onChange(of: webInspector) { browser.setInspectable($0) }
             .onAppear {
                 browser.openTab = { [weak b = browser] url in
                     TabHost.pending = b?.webView.window
@@ -90,7 +92,7 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
         webView.configuration.userContentController.add(ScriptMessages(), name: "mt2")
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        if #available(macOS 13.3, *) { webView.isInspectable = true }
+        setInspectable(UserDefaults.standard.bool(forKey: Pref.webInspector))
         titleObservation = webView.observe(\.title) { [weak self] webView, _ in
             var title = webView.title ?? ""
             if title.hasSuffix(" - YouTube") { title.removeLast(" - YouTube".count) }
@@ -107,6 +109,11 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
     }
 
     /// Web content follows the view's appearance, so this switches YouTube and the live chat too.
+    /// Lets Safari's Develop menu attach to the page. Applies to open pages right away.
+    func setInspectable(_ enabled: Bool) {
+        if #available(macOS 13.3, *) { webView.isInspectable = enabled }
+    }
+
     func setTheme(_ theme: Theme) {
         webView.appearance = theme.appearance
     }
