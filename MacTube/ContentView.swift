@@ -150,6 +150,8 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
                                               forMainFrameOnly: true))
         controller.addUserScript(WKUserScript(source: AdBlock.script, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: true))
+        controller.addUserScript(WKUserScript(source: ScrollFix.script, injectionTime: .atDocumentStart,
+                                              forMainFrameOnly: true))
         webView.evaluateJavaScript("window.__mt2 && window.__mt2.update(\(json))", completionHandler: nil)
     }
 
@@ -266,6 +268,25 @@ struct WebView: NSViewRepresentable {
     }
     
     func updateNSView(_ nsView: WKWebView, context: Context) {}
+}
+
+/// YouTube's own scroll restore pins the watch page to a saved position, so the sidebar can't be
+/// scrolled. This drops only those restore writes. It matches by function name, so if YouTube
+/// renames the function the fix stops applying without breaking anything.
+enum ScrollFix {
+    static let script = #"""
+(() => {
+  const d = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+  Object.defineProperty(Element.prototype, 'scrollTop', {
+    configurable: true,
+    get: d.get,
+    set(v) {
+      if (new Error().stack.includes('__restoreScrollPosition')) return;
+      d.set.call(this, v);
+    },
+  });
+})();
+"""#
 }
 
 /// Ad blocking in layers, so YouTube changing one thing doesn't bring every ad back:
