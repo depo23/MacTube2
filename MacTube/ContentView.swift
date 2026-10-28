@@ -270,9 +270,10 @@ struct WebView: NSViewRepresentable {
     func updateNSView(_ nsView: WKWebView, context: Context) {}
 }
 
-/// YouTube's own scroll restore pins the watch page to a saved position, so the sidebar can't be
-/// scrolled. This drops only those restore writes. It matches by function name, so if YouTube
-/// renames the function the fix stops applying without breaking anything.
+/// YouTube pins pages to a saved scroll position (its own restore, run on every scroll event) and
+/// cancels mouse-wheel scrolling itself, so the page and sidebar can't scroll. This drops only the
+/// restore writes, and hides wheel events from YouTube so the browser scrolls natively. Matching is
+/// by function name, so if YouTube renames it the restore block stops applying without breaking anything.
 enum ScrollFix {
     static let script = #"""
 (() => {
@@ -285,6 +286,7 @@ enum ScrollFix {
       d.set.call(this, v);
     },
   });
+  addEventListener('wheel', e => e.stopImmediatePropagation(), { capture: true, passive: true });
 })();
 """#
 }
