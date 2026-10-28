@@ -67,6 +67,11 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .forgetAIChannels)) { _ in
                 browser.webView.evaluateJavaScript("window.__mt2 && window.__mt2.forgetChannels()", completionHandler: nil)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .showWebInspector)) { note in
+                // The menu posts for the key window; only this window's page should open its inspector.
+                guard let window = note.object as? NSWindow, window === browser.webView.window else { return }
+                browser.showInspector()
+            }
     }
 }
 
@@ -112,6 +117,16 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
     /// Lets Safari's Develop menu attach to the page. Applies to open pages right away.
     func setInspectable(_ enabled: Bool) {
         if #available(macOS 13.3, *) { webView.isInspectable = enabled }
+        webView.configuration.preferences.setValue(enabled, forKey: "developerExtrasEnabled")
+    }
+
+    /// Opens WebKit's inspector inside MacTube 2. Uses WKWebView's private `_inspector`,
+    /// so this is for the direct-download build only, not the App Store.
+    func showInspector() {
+        let selector = NSSelectorFromString("_inspector")
+        guard webView.responds(to: selector),
+              let inspector = webView.perform(selector)?.takeUnretainedValue() as? NSObject else { return }
+        _ = inspector.perform(NSSelectorFromString("show"))
     }
 
     func setTheme(_ theme: Theme) {

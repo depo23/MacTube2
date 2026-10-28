@@ -68,6 +68,7 @@ enum Blocklist {
 
 extension Notification.Name {
     static let forgetAIChannels = Notification.Name("forgetAIChannels")
+    static let showWebInspector = Notification.Name("showWebInspector")
 }
 
 let homeURL = URL(string: "https://www.youtube.com")!
@@ -82,6 +83,7 @@ struct TabRequest: Codable, Hashable {
 struct MacTubeApp: App {
     @AppStorage(Pref.showShorts) private var showShorts = true
     @AppStorage(Pref.showAI) private var showAI = true
+    @AppStorage(Pref.webInspector) private var webInspector = false
 
     var body: some Scene {
         WindowGroup(for: TabRequest.self) { $request in
@@ -93,6 +95,14 @@ struct MacTubeApp: App {
             }
             CommandGroup(after: .newItem) {
                 NewTabButton()
+            }
+            CommandGroup(after: .toolbar) {
+                if webInspector {
+                    Button("Show Web Inspector") {
+                        NotificationCenter.default.post(name: .showWebInspector, object: NSApp.keyWindow)
+                    }
+                    .keyboardShortcut("i", modifiers: [.command, .option])
+                }
             }
             CommandMenu("Filters") {
                 Toggle("Show Shorts", isOn: $showShorts)
