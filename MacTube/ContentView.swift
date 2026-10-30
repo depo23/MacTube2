@@ -150,6 +150,8 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
                                               forMainFrameOnly: true))
         controller.addUserScript(WKUserScript(source: AdBlock.script, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: true))
+        controller.addUserScript(WKUserScript(source: SidebarPlayHold.script, injectionTime: .atDocumentStart,
+                                              forMainFrameOnly: true))
         controller.addUserScript(WKUserScript(source: ScrollFix.script, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: true))
         webView.evaluateJavaScript("window.__mt2 && window.__mt2.update(\(json))", completionHandler: nil)
@@ -268,6 +270,26 @@ struct WebView: NSViewRepresentable {
     }
     
     func updateNSView(_ nsView: WKWebView, context: Context) {}
+}
+
+/// Clicking a video in a list starts it after a 2-second hold. YouTube's player stalls and stops
+/// when it starts right after a click from the sidebar, so the first play after such a click waits.
+enum SidebarPlayHold {
+    static let script = #"""
+(() => {
+  let clickAt = 0;
+  document.addEventListener('click', e => {
+    if (e.target.closest && e.target.closest('a[href*="/watch"]')) clickAt = performance.now();
+  }, true);
+  document.addEventListener('play', e => {
+    if (e.target.tagName !== 'VIDEO' || !clickAt || performance.now() - clickAt > 3000) return;
+    clickAt = 0;
+    const v = e.target;
+    v.pause();
+    setTimeout(() => v.play().catch(() => {}), 2000);
+  }, true);
+})();
+"""#
 }
 
 /// YouTube pins pages to a saved scroll position (its own restore, run on every scroll event) and
