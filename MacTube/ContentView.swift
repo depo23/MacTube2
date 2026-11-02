@@ -283,7 +283,6 @@ enum SidebarPlayHold {
   }, true);
   document.addEventListener('play', e => {
     if (e.target.tagName !== 'VIDEO' || !clickAt || performance.now() - clickAt > 3000) return;
-    clickAt = 0;
     const v = e.target;
     v.pause();
     setTimeout(() => v.play().catch(() => {}), 2000);
