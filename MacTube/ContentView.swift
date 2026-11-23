@@ -18,6 +18,8 @@ struct ContentView: View {
     @AppStorage(Pref.theme) private var theme = Theme.system
     @AppStorage(Pref.webInspector) private var webInspector = false
 
+    static let supportURL = URL(string: "https://ko-fi.com/zenmode")!
+
     init(url: URL) {
         _browser = StateObject(wrappedValue: Browser(url: url))
     }
@@ -46,6 +48,13 @@ struct ContentView: View {
                         Label("Reload", systemImage: "arrow.clockwise")
                     }
                     .help("Reload")
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button { NSWorkspace.shared.open(Self.supportURL) } label: {
+                        Label("Support", systemImage: "heart")
+                    }
+                    .help("Support MacTube 2 on Ko-fi")
                 }
             }
             .background(Color(colorScheme == .dark
@@ -153,6 +162,8 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
         controller.addUserScript(WKUserScript(source: SidebarPlayHold.script, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: true))
         controller.addUserScript(WKUserScript(source: ScrollFix.script, injectionTime: .atDocumentStart,
+                                              forMainFrameOnly: true))
+        controller.addUserScript(WKUserScript(source: PlaylistAutoplay.script, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: true))
         webView.evaluateJavaScript("window.__mt2 && window.__mt2.update(\(json))", completionHandler: nil)
     }
@@ -287,6 +298,44 @@ enum SidebarPlayHold {
     v.pause();
     setTimeout(() => v.play().catch(() => {}), 2000);
   }, true);
+})();
+"""#
+}
+
+/// Adds an Autoplay switch to the top of the playlist panel beside a watch page. It mirrors and
+/// drives YouTube's own autoplay control in the player, so the state always matches what the player does.
+enum PlaylistAutoplay {
+    static let script = #"""
+(() => {
+  const ATTR = 'data-mt2-autoplay';
+  const player = () => document.querySelector('.ytp-autonav-toggle-button');
+  const isOn = () => player()?.getAttribute('aria-checked') === 'true';
+
+  function sync(btn) {
+    // Write only on change: the observer below also sees these writes.
+    const on = String(isOn());
+    const label = on === 'true' ? 'Autoplay: on' : 'Autoplay: off';
+    if (btn.getAttribute('aria-checked') !== on) btn.setAttribute('aria-checked', on);
+    if (btn.textContent !== label) btn.textContent = label;
+  }
+
+  function mount() {
+    const panel = document.querySelector('ytd-playlist-panel-renderer');
+    if (!panel || !player()) return;
+    let btn = panel.querySelector(`[${ATTR}]`);
+    if (btn) return sync(btn);
+    btn = document.createElement('button');
+    btn.setAttribute(ATTR, '');
+    btn.setAttribute('role', 'switch');
+    btn.style.cssText = 'margin:8px 12px;padding:4px 12px;border-radius:16px;font:500 12px system-ui;'
+      + 'border:1px solid rgba(128,128,128,.45);background:transparent;color:inherit;cursor:pointer';
+    btn.addEventListener('click', () => player()?.click());
+    panel.prepend(btn);
+    sync(btn);
+  }
+
+  // The player's switch can change on its own (end of video, settings), so re-check on every DOM change.
+  new MutationObserver(mount).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-checked'] });
 })();
 """#
 }
