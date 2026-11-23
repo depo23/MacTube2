@@ -66,6 +66,32 @@ enum Blocklist {
     }
 }
 
+/// Mirrors the page settings to a file in Application Support. The app's preferences live in a domain
+/// keyed by bundle ID (and a sandboxed build uses a different place), so a change to either wipes them.
+/// The file is not tied to either, and fills the preferences back in when they are empty.
+enum SettingsBackup {
+    static var url: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("MacTube 2", isDirectory: true)
+        return dir.appendingPathComponent("settings.json")
+    }
+
+    static func save(_ json: String) {
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data(json.utf8).write(to: url, options: .atomic)
+    }
+
+    static func restoreIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: Pref.blockedChannels) == nil,
+              let data = try? Data(contentsOf: url),
+              let s = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        if let v = s["showShorts"] as? Bool { defaults.set(v, forKey: Pref.showShorts) }
+        if let v = s["showAI"] as? Bool { defaults.set(v, forKey: Pref.showAI) }
+        if let v = s["blocked"] as? [String] { defaults.set(v.joined(separator: "\n"), forKey: Pref.blockedChannels) }
+    }
+}
+
 extension Notification.Name {
     static let forgetAIChannels = Notification.Name("forgetAIChannels")
     static let showWebInspector = Notification.Name("showWebInspector")
@@ -84,6 +110,8 @@ struct MacTubeApp: App {
     @AppStorage(Pref.showShorts) private var showShorts = true
     @AppStorage(Pref.showAI) private var showAI = true
     @AppStorage(Pref.webInspector) private var webInspector = false
+
+    init() { SettingsBackup.restoreIfNeeded() }
 
     var body: some Scene {
         WindowGroup(for: TabRequest.self) { $request in

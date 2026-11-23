@@ -152,6 +152,7 @@ final class Browser: NSObject, ObservableObject, WKNavigationDelegate, WKUIDeleg
             "blocked": Blocklist.load(),
         ]
         let json = String(decoding: try! JSONSerialization.data(withJSONObject: settings), as: UTF8.self)
+        SettingsBackup.save(json)
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
         controller.addUserScript(WKUserScript(source: "window.__mt2Settings=\(json);\n" + FilterScript.source,
