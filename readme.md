@@ -14,6 +14,8 @@
 
 <p align="center"><sub>macOS 13 Ventura or later · Apple Silicon & Intel · always the latest build</sub></p>
 
+<p align="center"><b><a href="#first-launch">Can't open it? Jump to the first-launch fix ↓</a></b></p>
+
 ---
 
 ## Why MacTube 2
@@ -44,9 +46,21 @@
 ## Install
 
 1. [Download MacTube2.dmg](https://github.com/depo23/MacTube2/releases/latest/download/MacTube2.dmg) and drag **MacTube 2** into Applications.
-2. Open **MacTube 2**. macOS blocks the first launch because the app isn't signed with a paid Apple developer account.
+2. Open **MacTube 2**. macOS blocks the first launch because the app isn't signed with a paid Apple developer account. Fix it in [First launch](#first-launch) below.
 
 ### First launch
+
+macOS blocks the first launch of apps not signed with a paid Apple developer account. Right-click → **Open** no longer gets past this on recent macOS, so use one of these:
+
+**Option A: one Terminal command (fastest).** Open **Terminal** (⌘Space, type *Terminal*), paste this and press Return:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/MacTube 2.app"
+```
+
+It removes the download flag macOS checks, then open **MacTube 2** normally.
+
+**Option B: System Settings.**
 
 1. Open **MacTube 2** once and click **Done** on the warning.
 2. Open **System Settings → Privacy & Security** and scroll down to **Security**.
